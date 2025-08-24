@@ -17,7 +17,7 @@ Below is the module interaction overview. Core depends only on ports. Adapters i
 graph TD
   subgraph "Client & Delivery"
     C[Client]
-    H["HTTP Handler<br/>src/user/http.ts"]
+    H["HTTP Handler<br/>src/user/http.ts<br/>(5)"]
   end
 
   subgraph "Core (Pure TS)"
@@ -33,7 +33,7 @@ graph TD
   end
 
   subgraph "Infrastructure / Framework"
-    DB[("Encore SQLDatabase<br/>src/user/db.ts")]
+    DB[("Encore SQLDatabase<br/>src/user/db.ts<br/>(4)")]
     PS["Pub/Sub Topic: signups<br/>src/user/events.ts"]
     Cron["Encore Cron<br/>src/user/jobs.ts"]
   end
