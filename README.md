@@ -37,9 +37,15 @@ Now off you go into the clouds!
 encore test
 ```
 
-## Injecting Environment Variables
+## Configuration via Environment Variables
+
+- Create a .env file at the repo root for local development
+- Add your secrets as KEY=VALUE lines
+
+Example .env:
 
 ```bash
-encore secret set --type local SendgridApiKey
-# Enter secret value: ...
+SENDGRID_API_KEY=your-local-key
 ```
+
+At runtime, ensure these variables are present in the environment (e.g., using a dotenv loader or by exporting them in your shell/CI).
