@@ -4,7 +4,7 @@
 import { secret } from "encore.dev/config";
 import type { EmailSender } from "../../app/user/ports";
 
-const SENDGRID_API_KEY = secret("SendgridApiKey"); // set value via CLI or dashboard
+// const SENDGRID_API_KEY = secret("SendgridApiKey"); // set value via CLI or dashboard
 
 export const EmailSenderImpl = (): EmailSender => ({
   async sendWelcome(to, name) {
