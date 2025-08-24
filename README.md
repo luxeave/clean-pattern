@@ -36,3 +36,10 @@ Now off you go into the clouds!
 ```bash
 encore test
 ```
+
+## Injecting Environment Variables
+
+```bash
+encore secret set --type local SendgridApiKey
+# Enter secret value: ...
+```
