@@ -21,15 +21,15 @@ graph TD
   end
 
   subgraph "Core (Pure TS)"
-    UC["RegisterUser<br/>Use-case"]
-    PortRepo[("UserRepo port")]
-    PortId[("IdGen port")]
-    PortMail[("EmailSender port")]
+    UC["RegisterUser<br/>Use-case<br/>(2)"]
+    PortRepo[("UserRepo port<br/>(1)")]
+    PortId[("IdGen port<br/>(1)")]
+    PortMail[("EmailSender port<br/>(1)")]
   end
 
   subgraph "Adapters (Implement Ports)"
-    AR["UserRepoSQL<br/>src/adapters/user/UserRepo.sql.ts"]
-    AM["EmailSenderImpl<br/>src/adapters/user/EmailSender.impl.ts"]
+    AR["UserRepoSQL<br/>src/adapters/user/UserRepo.sql.ts<br/>(3)"]
+    AM["EmailSenderImpl<br/>src/adapters/user/EmailSender.impl.ts<br/>(3)"]
   end
 
   subgraph "Infrastructure / Framework"
@@ -49,9 +49,9 @@ graph TD
   H -->|"publish SignupEvent"| PS
   Cron -->|"calls"| H
 
-  classDef core fill:#e3f2fd,stroke:#1976d2
-  classDef adapter fill:#f3e5f5,stroke:#7b1fa2
-  classDef infra fill:#fff3e0,stroke:#ef6c00
+  classDef core fill:#e3f2fd,stroke:#1976d2,color:#0d47a1
+  classDef adapter fill:#f3e5f5,stroke:#7b1fa2,color:#4a148c
+  classDef infra fill:#fff3e0,stroke:#ef6c00,color:#e65100
   class UC,PortRepo,PortId,PortMail core
   class AR,AM adapter
   class DB,PS,Cron infra
