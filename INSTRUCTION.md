@@ -1,24 +1,20 @@
-## Purpose
-
-This instruction set codifies how to implement features, refactors, and fixes so they strictly follow the Clean Architecture / Ports & Adapters (Hexagonal) pattern documented in PATTERN.md, with vertical slices per feature. It defines how to structure code, what can depend on what, naming/file rules, dependency boundaries, testing patterns, examples, and a pre-merge validation checklist.
-
 ## Core Principles (from PATTERN.md)
 
-- Keep the core “pure TS”: no framework, DB, HTTP, or Encore imports in business logic
+- Keep the core “pure TS”: no framework (default: Encore), DB, or HTTP imports in business logic
 - Depend on ports (interfaces) defined by the core, not concrete technology
 - Implement adapters at the edges to satisfy ports (SQL, email, etc.)
 - Compose wiring only at delivery boundaries (HTTP, Pub/Sub, Cron)
-- Vertical slice per feature (e.g., “user”) with clear ownership and navigation
+- Vertical slice per feature (e.g., “<feature>”) with clear ownership and navigation
 
 ## Layering and Allowed Dependencies
 
 - Core (Domain + Application): src/app/<feature>
   - Contains: ports.ts, usecases/<UseCase>.ts
   - Allowed imports: TypeScript/standard libs, internal types, ports within the same feature
-  - Forbidden: Encore, SQL/DB, HTTP/fetch, SDKs, Pub/Sub, Cron, environment/secrets
+  - Forbidden: Framework (default: Encore), SQL/DB, HTTP/fetch, SDKs, Pub/Sub, Cron, environment/secrets
 - Adapters (Implement Ports): src/adapters/<feature>
   - Contains: concrete implementations (SQL, email, HTTP SDKs)
-  - Allowed imports: core ports/types for the same feature, external SDKs, Encore infrastructure helpers only if they are purely infrastructural and do not leak into core
+  - Allowed imports: core ports/types for the same feature, external SDKs, framework infrastructure helpers only if they are purely infrastructural and do not leak into core
   - Forbidden: importing use-cases; calling back into core
 - Delivery + Infrastructure: src/<feature>
   - Contains: http.ts, events.ts, jobs.ts, db.ts, migrations/ (when relevant)
@@ -33,19 +29,26 @@ Dependency direction:
 
 ## Project Layout and File Organization
 
-Per feature slice (example “user”):
-- src/app/user
+Per feature slice (template):
+- src/app/<feature>
   - ports.ts
-  - usecases/RegisterUser.ts
-- src/adapters/user
-  - UserRepo.sql.ts
-  - EmailSender.impl.ts
-- src/user
+  - usecases/<UseCase>.ts
+- src/adapters/<feature>
+  - <PortName>.sql.ts (or .impl.ts)
+  - <AdapterName>.impl.ts
+- src/<feature>
   - http.ts
   - events.ts
   - jobs.ts
   - db.ts
   - migrations/...
+
+Optional additional layers (customize as needed):
+- src/app/<feature>/domain for domain entities/value objects
+- src/app/<feature>/services for domain services (pure)
+- src/adapters/<feature>/inmem for test doubles
+- src/<feature>/readmodels for query endpoints
+
 
 Rules:
 - All business rules for a feature live under src/app/<feature>
@@ -57,21 +60,21 @@ Rules:
 
 - Ports: Noun + Suffix (Repo, IdGen, EmailSender, PaymentGateway)
   - File: ports.ts (contains all ports for the feature)
-  - Methods: verb-based (create, findByEmail, disableUnverifiedOlderThan, sendWelcome)
+  - Methods: verbs reflecting domain language (e.g., create, findBy<Attribute>, disable<Condition>, send<Kind>)
 - Use-cases: PascalCase VerbNoun in a dedicated file under usecases/
-  - Class: RegisterUser, VerifyUser, CleanupUnverified
+  - Class: <UseCaseName> examples: Create<Aggregate>, Verify<Aggregate>, Cleanup<Aggregate>
   - Method: exec(input: X): Promise<Y>
   - Constructor parameter: deps: { ...port instances... }
 - Adapters: Implementation suffix
-  - SQL adapters: <PortName>SQL (e.g., UserRepoSQL) in <Name>.sql.ts
-  - Generic adapters: <PortName>Impl (e.g., EmailSenderImpl) in <Name>.impl.ts
+  - SQL adapters: <PortName>SQL (e.g., <Aggregate>RepoSQL) in <Name>.sql.ts
+  - Generic adapters: <PortName>Impl (e.g., <Notifier>Impl) in <Name>.impl.ts
   - Export: named factories (no default exports)
 - Delivery files:
   - http.ts, events.ts, jobs.ts, db.ts with named exports
 - Types:
   - Input/Output types named <UseCase>Input / <UseCase>Output or domain-noun types
 - Events:
-  - Topic name: “<feature>-<eventPlural>” (e.g., user-signups)
+  - Topic name: “<feature>-<eventPlural>”
   - Event payload type: <EventName>Event
 
 ## Code Structure Requirements
@@ -103,6 +106,8 @@ Rules:
 - Adapters/Delivery:
   - Add only the minimum necessary infra dependencies (DB clients, email SDKs)
   - Secrets/config are retrieved in adapters/delivery only
+- Framework profile:
+  - Default profile assumes Encore (DB, Topics, Subscriptions, Cron). Provide an alternative profile by listing allowed packages and constructs for your framework in a local doc (see Adaptation Guidance) and update lint rules.
 - Versioning:
   - Prefer stable versions for infra libs, pinned via the chosen package manager and lockfile
 - Avoid cyclical dependencies between feature slices
@@ -113,7 +118,7 @@ Rules:
   - Use in-memory test doubles implementing ports (fakes/stubs)
   - Do not boot frameworks/DBs; run in Node + Vitest/Jest
 - Integration tests (slower) for adapters and delivery:
-  - May use Encore endpoints with real adapters
+  - May use framework endpoints (Encore by default) with real adapters
   - Validate idempotency and event publishing
 - Test structure:
   - src/tests/<feature>/<use-case>.test.ts for unit tests
@@ -127,18 +132,15 @@ Rules:
 Compliant use-case (pure TS, ports only):
 
 ```ts
-// src/app/user/usecases/RegisterUser.ts
-export class RegisterUser {
-  constructor(private deps: { repo: UserRepo; id: IdGen; mail: EmailSender }) {}
-  async exec(input: RegisterInput): Promise<RegisterOutput> {
-    const email = input.email.trim().toLowerCase();
-    const existing = await this.deps.repo.findByEmail(email);
-    if (existing) throw new Error("Email already registered");
-    const id = this.deps.id.newId();
-    const user = { id, email, name: input.name, verified: false };
-    await this.deps.repo.create(user);
-    await this.deps.mail.sendWelcome(email, input.name);
-    return user;
+// src/app/<feature>/usecases/<UseCase>.ts
+export class <UseCase> {
+  constructor(private deps: { <port1>: <Port1>; <port2>?: <Port2> }) {}
+  async exec(input: <UseCase>Input): Promise<<UseCase>Output> {
+    // 1) Validate input (pure functions/types only)
+    // 2) Query via ports: const existing = await this.deps.<port1>.<Method>(/* ... */)
+    // 3) Decide business outcome; derive IDs via this.deps.<idGenPort>.newId()
+    // 4) Persist/side-effects via ports only (no framework/DB/HTTP imports here)
+    return <result>;
   }
 }
 ```
@@ -146,18 +148,14 @@ export class RegisterUser {
 Compliant adapter implementing a port:
 
 ```ts
-// src/adapters/user/UserRepo.sql.ts
-export const UserRepoSQL = (db: SQLDatabase): UserRepo => ({
-  async create(u) {
-    await db.exec`INSERT INTO users (id, email, name, verified) VALUES (${u.id}, ${u.email}, ${u.name ?? null}, ${u.verified})`;
+// src/adapters/<feature>/<PortName>.sql.ts (or .impl.ts, etc.)
+export const <PortName>SQL = (db: <DatabaseType>): <PortName> => ({
+  async <Method1>(/* ... */) {
+    // await db.exec`INSERT INTO <table> (...) VALUES (...)`
   },
-  async findByEmail(email) {
-    const row = await db.queryRow`SELECT id, email, name, verified FROM users WHERE email = ${email}`;
-    return row ? { id: row.id, email: row.email, name: row.name ?? undefined, verified: row.verified } : null;
-  },
-  async disableUnverifiedOlderThan(hours) {
-    const res = await db.exec`UPDATE users SET verified = false WHERE verified = false AND created_at < NOW() - INTERVAL '${hours} hours'`;
-    return res.rowCount ?? 0;
+  async <Method2>(/* ... */) {
+    // const row = await db.queryRow`SELECT ... FROM <table> WHERE ...`
+    // return row ? { /* map fields to domain shape */ } : null;
   },
 });
 ```
@@ -165,34 +163,34 @@ export const UserRepoSQL = (db: SQLDatabase): UserRepo => ({
 Compliant delivery wiring:
 
 ```ts
-// src/user/http.ts
-const repo = UserRepoSQL(DB);
-const mail = EmailSenderImpl();
-const uc = new RegisterUser({ repo, id: IdGen, mail });
+// src/<feature>/http.ts
+const repo = <PortName>SQL(<DB>);
+const mail = <EmailSenderAdapter>();
+const uc = new <UseCase>({ <port1>: repo, <idGenPort>: <IdGen>, <mailPort>: mail });
 
-export async function createUserHandler(req: RegisterInput) {
-  const user = await uc.exec(req);
-  await signups.publish({ userID: user.id, email: user.email });
-  return { status: 201, body: user };
+export async function <EndpointHandler>(req: <UseCase>Input) {
+  const out = await uc.exec(req);
+  await <EventTopic>.publish({ /* event payload */ });
+  return { status: 201, body: out };
 }
 ```
 
 Violations (do not do this):
 
 ```ts
-// ❌ Core importing infrastructure (Encore/DB)
-import { SQLDatabase } from "@encore/..."; // forbidden in core
-export class RegisterUser { /* ... */ }
+// ❌ Core importing infrastructure (Framework/DB)
+import { <DatabaseType> } from "<framework-package>"; // forbidden in core
+export class <UseCase> { /* ... */ }
 
 // ❌ Core returning framework types
 async exec(input): Promise<Response> { /* returning HTTP Response is forbidden */ }
 
 // ❌ Adapter calling back into use-cases
-import { RegisterUser } from "../../app/user/usecases/RegisterUser"; // adapters must not depend on use-cases
+import { <UseCase> } from "../../app/<feature>/usecases/<UseCase>"; // adapters must not depend on use-cases
 
 // ❌ Delivery embedding business rules
-// src/user/http.ts
-if (await DB.queryRow`SELECT ...`) { /* duplicate logic here instead of use-case */ }
+// src/<feature>/http.ts
+if (await <DB>.queryRow`SELECT ...`) { /* duplicate logic here instead of use-case */ }
 ```
 
 ## File and API Surface Requirements
@@ -205,7 +203,7 @@ if (await DB.queryRow`SELECT ...`) { /* duplicate logic here instead of use-case
   - Group feature’s ports; interfaces only
   - No imports from adapters/delivery/frameworks
 - Adapters:
-  - Factory function per adapter (e.g., EmailSenderImpl(): EmailSender)
+  - Factory function per adapter (e.g., <AdapterName>(): <Port>)
   - No default exports; use named exports
 - Delivery:
   - Keep files small: http.ts (endpoint + wiring), events.ts (topic + subscriptions), jobs.ts (cron), db.ts (database handle), migrations/ (schema)
@@ -214,10 +212,12 @@ if (await DB.queryRow`SELECT ...`) { /* duplicate logic here instead of use-case
 
 - Events:
   - Declare Topic and Subscriptions in src/<feature>/events.ts
+  - Default framework: Encore (Topic, Subscription). Alternative frameworks should provide equivalent pub/sub constructs and keep events at delivery layer.
   - Publish events only from delivery handlers (after use-case returns)
   - Subscriptions call adapters/use-cases via ports if needed; avoid business rules in subscription handler body
 - Jobs:
   - Cron jobs trigger idempotent endpoints
+  - Default framework: Encore (CronJob). Alternative frameworks should wire equivalent schedulers at delivery layer.
   - Job implementations live in src/<feature>/jobs.ts and call delivery endpoints (or use-cases via delivery wiring)
 
 ## Refactoring Guidance
@@ -226,6 +226,8 @@ if (await DB.queryRow`SELECT ...`) { /* duplicate logic here instead of use-case
 - When replacing a technology (e.g., Sendgrid → SES):
   - Update adapters only; do not alter use-case code or ports unless strictly necessary
 - Keep ports minimal; avoid growing “god interfaces”
+- If adding cross-cutting concerns (logging, metrics, tracing):
+  - Prefer decorators around ports or adapters at the delivery edge; never embed into use-cases
 
 ## Pre-Implementation Checklist (Agent)
 
@@ -237,6 +239,7 @@ Before you write code:
   - src/<feature>/{http.ts,events.ts,jobs.ts,db.ts}
 - Decide the ports required; define interfaces in ports.ts
 - Sketch the use-case inputs/outputs and business rules without IO concerns
+- Select framework profile (default: Encore) and note any project-specific variations
 - Plan adapter implementations for the ports
 
 ## Implementation Steps (Agent)
@@ -263,7 +266,7 @@ Before you write code:
 Manual checks (fast, safe):
 - Directory & file structure matches the layout above
 - In src/app/<feature>:
-  - grep forbid imports: “encore”, “sql”, “fetch”, “Topic”, “Subscription”, “Cron”, environment/secret APIs
+  - grep forbid imports: <FrameworkIndicators> (defaults: "encore", "@encore", framework-specific DB/HTTP symbols), infra primitives (e.g., "sql", "Topic", "Subscription", "Cron"), HTTP clients ("fetch", "axios"), and environment/secret APIs
   - only imports from TS stdlib, same feature’s ports/types
 - Ports signatures are framework-free (return plain TS data)
 - Use-cases expose exec(input): Promise<output>
@@ -273,8 +276,9 @@ Manual checks (fast, safe):
 
 Automated checks you can add (recommended):
 - ESLint “no-restricted-imports” per folder:
-  - src/app/**: disallow @encore/*, node:fs, node:http, cross-feature adapter/delivery imports
+  - src/app/**: disallow <frameworkPackages>/* (default: @encore/*), node:fs, node:http, cross-feature adapter/delivery imports
   - src/adapters/**: disallow importing usecases
+  - src/<feature>/**: allow framework packages and adapters; disallow importing from other features’ usecases
 - Dependency graph checks (e.g., dependency-cruiser) with rules:
   - app → cannot import adapters or delivery
   - adapters → can import app/ports only
@@ -282,6 +286,7 @@ Automated checks you can add (recommended):
 - Simple content rules:
   - Disallow Response/Request/HTTP types in core
   - Disallow env/secrets access in core
+  - Ensure all use-cases have an exec method with explicit input/output
 - Pre-commit/pre-push hooks to run unit tests and lint
 
 Testing validation:
@@ -302,7 +307,7 @@ PR checklist (must be satisfied before merge):
 
 ## Quick Compliance vs. Violation Matrix
 
-- Core imports Encore/DB/HTTP → Violation
+- Core imports Framework/DB/HTTP → Violation
 - Core returns plain data types → Compliant
 - Adapter imports use-case → Violation
 - Delivery composes use-case with adapters → Compliant
@@ -314,15 +319,14 @@ PR checklist (must be satisfied before merge):
 ## Example Fakes for Unit Tests
 
 ```ts
-// tests/fakes/user.ts
-export class InMemUserRepo implements UserRepo {
-  private byEmail = new Map<string, RegisterOutput>();
-  async create(u: RegisterOutput) { this.byEmail.set(u.email, u); }
-  async findByEmail(email: string) { return this.byEmail.get(email) ?? null; }
-  async disableUnverifiedOlderThan() { return 0; }
+// tests/fakes/<feature>.ts
+export class InMem<Port> implements <Port> {
+  private store = new Map<string, unknown>();
+  async <Method1>(entity: <Entity>) { this.store.set(<key>, entity); }
+  async <Method2>(key: string) { return (this.store.get(key) as <Entity> | undefined) ?? null; }
 }
-export const InMemMail: EmailSender = {
-  async sendWelcome() { /* record call in test */ },
+export const InMem<NotificationPort>: <NotificationPort> = {
+  async <SendMethod>(/* ... */) { /* record call in test */ },
 };
 export const TestIdGen: IdGen = { newId: () => "id-1" };
 ```
@@ -330,12 +334,12 @@ export const TestIdGen: IdGen = { newId: () => "id-1" };
 Unit test pattern:
 
 ```ts
-// src/tests/user/register_user.test.ts
-it("registers a new user and sends welcome", async () => {
-  const repo = new InMemUserRepo();
-  const uc = new RegisterUser({ repo, id: TestIdGen, mail: InMemMail });
-  const out = await uc.exec({ email: "A@B.com", name: "Alice" });
-  expect(out).toEqual({ id: "id-1", email: "a@b.com", name: "Alice", verified: false });
+// src/tests/<feature>/<use-case>.test.ts
+it("executes <UseCase> and triggers side-effects via ports", async () => {
+  const repo = new InMem<Port>();
+  const uc = new <UseCase>({ <port1>: repo, <idGenPort>: TestIdGen, <mailPort>: InMem<NotificationPort> });
+  const out = await uc.exec(<UseCase>InputFixture);
+  expect(out).toEqual(<UseCase>OutputFixture);
 });
 ```
 
@@ -367,5 +371,26 @@ When asked to:
   - Lint/architecture checks pass (no restricted imports, no layer violations)
 - Documentation:
   - If new port or use-case, short docstring added describing intent and rules
+- Framework Profile:
+  - Profile defined and lint rules configured (default Encore), or project-specific profile documented
 
 Follow this instruction set for every change. If a valid need arises to deviate (e.g., new cross-cutting concern), propose an approach that preserves the layering (e.g., adapter/decorator) and update these rules accordingly after approval.
+
+## Adaptation Guidance (Customize Safely)
+
+- Define a Framework Profile:
+  - Document allowed framework packages (e.g., @encore/*) and infra constructs (DB type, Topic/Subscription, Cron) in DOCS/FRAMEWORK_PROFILE.md
+  - Configure ESLint no-restricted-imports and dependency rules accordingly
+- Tailor Naming Conventions:
+  - If your project prefers different suffixes/prefixes, update this doc’s examples consistently (e.g., Gateway instead of Repo)
+- Add Layers Conservatively:
+  - If adding read models, CQRS, or domain services, keep them pure under src/app/<feature>; adapters remain IO-only
+- Multi-Feature Projects:
+  - Enforce no cross-feature imports between app/<featureA> and app/<featureB> except through shared abstractions (e.g., app/shared)
+- Shared Utilities:
+  - Place cross-cutting pure utilities in src/app/shared; adapters for them go in src/adapters/shared; delivery wiring in src/shared if needed
+- Migration Strategy:
+  - When introducing this pattern to an existing codebase, migrate per feature slice: create ports, extract use-case, then move IO to adapters; only then wire delivery
+- Checklists and Tooling:
+  - Keep the PR checklist and lint rules in sync with your Framework Profile; fail CI on violations
+
