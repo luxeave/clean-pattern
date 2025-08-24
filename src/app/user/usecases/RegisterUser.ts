@@ -37,7 +37,7 @@ Encore gives you great infra primitives (SQL, Pub/Sub, Cron, Secrets), but by ke
 If you want, I can illustrate this with a **diagram** showing exactly where Encore ends and “pure TS” begins in the architecture for our vertical-slice pattern. It’ll make the boundaries very clear. Should I?
 */
 
-import type { EmailSender, IdGen, UserRepo } from "../user/ports";
+import type { EmailSender, IdGen, UserRepo } from "../ports";
 
 export type RegisterInput  = { email: string; name?: string };
 export type RegisterOutput = { id: string; email: string; name?: string; verified: boolean };
